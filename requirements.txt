@@ -1,5 +1,3 @@
-beautifulsoup4>=4.12.2
-# RusPhonetic: install the package that provides RusPhonetic transcriber
-# You may need to adjust the package name if it's different on PyPI.
-# Example (if available): RusPhonetic
-RusPhonetic>=0.0.1
+streamlit>=1.28.0
+pandas>=1.5.0
+sqlite3
