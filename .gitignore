@@ -1,0 +1,30 @@
+# Виртуальное окружение
+.venv/
+__pycache__/
+*.pyc
+
+# Базы данных
+*.db
+
+# Временные файлы и кэш
+*.pkl
+*.csv
+*.jsonl
+*.json
+*.md
+*.py
+
+# Исключения - оставляем только нужные файлы
+!app.py
+!search.py
+!query_parser.py
+!phonology_rules.py
+!pos_mapper.py
+!database.py
+!requirements.txt
+!export_words.py
+!data_loader.py
+!process_ipa.py
+!transcribe_stress.py
+!build_dictionary.py
+!populate_db.py
