@@ -28,3 +28,4 @@ __pycache__/
 !transcribe_stress.py
 !build_dictionary.py
 !populate_db.py
+!database.db
