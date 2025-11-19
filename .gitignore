@@ -5,6 +5,7 @@ __pycache__/
 
 # Базы данных
 *.db
+!database.db
 
 # Временные файлы и кэш
 *.pkl
@@ -28,4 +29,4 @@ __pycache__/
 !transcribe_stress.py
 !build_dictionary.py
 !populate_db.py
-!database.db
+
