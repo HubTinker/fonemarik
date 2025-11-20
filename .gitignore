@@ -19,7 +19,6 @@ __pycache__/
 !MANIFEST.md
 *.py
 !phoneme_mapper.py
-
 # Исключения - оставляем только нужные файлы
 !app.py
 !search.py
@@ -34,4 +33,7 @@ __pycache__/
 !transcribe_stress.py
 !build_dictionary.py
 !populate_db.py
-
+!text_utils.py
+!transcription_utils.py
+!gui.py
+!final_verification.py
