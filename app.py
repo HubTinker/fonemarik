@@ -187,7 +187,7 @@ if query:
                 search_in=search_in_options[search_in],
                 limit=limit
             )
-            st.success(f"Экспорт завершен. [Нажмите здесь, чтобы скачать файл]({EXPORT_FILE})")
+            st.success(f"Экспорт завершен. Скачайте и распечатайте файл")
             # Предоставляем ссылку для скачивания
             with open(EXPORT_FILE, "rb") as file:
                 st.download_button(
