@@ -12,8 +12,13 @@ __pycache__/
 *.csv
 *.jsonl
 *.json
+!lemma40_tables.json
+!ipa_processed_words.json
 *.md
+!info.md
+!MANIFEST.md
 *.py
+!phoneme_mapper.py
 
 # Исключения - оставляем только нужные файлы
 !app.py
