@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 import streamlit as st
 import pandas as pd
-from search import find_words
+from search import find_words_intelligent
 from pos_mapper import POS_NAME_TO_TAG, POS_NAMES_LIST
+from text_utils import format_word_with_stress
+from export_words import export_words, EXPORT_FILE
 
 # --- Конфигурация страницы ---
 st.set_page_config(
@@ -22,11 +24,20 @@ with st.sidebar:
         help="Введите слово, его часть или фонемный шаблон.",
     )
     
-    exclude_sounds = st.text_input(
-        "Исключить звуки",
+    exclude_sounds_input = st.text_input(
+        "Исключить конкретные звуки",
         placeholder="а, б', ...",
         help="Перечислите через запятую звуки, которых не должно быть в слове.",
     )
+
+    st.markdown("Исключить категории звуков:")
+    col1, col2 = st.columns(2)
+    with col1:
+        exclude_hard = st.checkbox("Твердые согл.", key="exclude_hard")
+        exclude_voiced = st.checkbox("Звонкие согл.", key="exclude_voiced")
+    with col2:
+        exclude_soft = st.checkbox("Мягкие согл.", key="exclude_soft")
+        exclude_voiceless = st.checkbox("Глухие согл.", key="exclude_voiceless")
 
     search_in_options = {"в транскрипции": "phonemes", "в слове": "word"}
     search_in = st.radio(
@@ -43,11 +54,10 @@ with st.sidebar:
         help="Где должен находиться искомый фонемный шаблон.",
     )
     
-    syllable_count = st.selectbox(
+    syllable_count = st.multiselect(
         "Количество слогов",
-        options=["Любое", 1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-        index=0,
-        help="Фильтр по точному количеству слогов в слове.",
+        options=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+        help="Фильтр по точному количеству слогов в слове. Можно выбрать несколько.",
     )
 
     part_of_speech = st.selectbox(
@@ -85,23 +95,39 @@ if query:
     }
     search_pos = pos_map[position]
 
-    syllables = syllable_count if syllable_count != "Любое" else None
+    syllables = syllable_count if syllable_count else None
     
     # Получаем тег части речи для БД
     pos_tag = None
     if part_of_speech != "Любая":
         pos_tag = POS_NAME_TO_TAG.get(part_of_speech)
 
+    # --- Сбор всех исключений ---
+    exclude_list = []
+    if exclude_sounds_input:
+        exclude_list.append(exclude_sounds_input)
+    if exclude_hard:
+        exclude_list.append("тверд")
+    if exclude_soft:
+        exclude_list.append("мягк")
+    if exclude_voiced:
+        exclude_list.append("звонк")
+    if exclude_voiceless:
+        exclude_list.append("глух")
+    
+    exclude_str = ",".join(exclude_list)
+
+
     with st.spinner("Идет поиск по словарю..."):
         # Вызов основной функции поиска
-        found_results = find_words(
+        found_results = find_words_intelligent(
             query=query,
             syllable_count=syllables,
             part_of_speech=pos_tag,
             position=search_pos,
             search_in=search_in_options[search_in],
             sort_by_frequency=sort_by_freq,
-            exclude_sounds=exclude_sounds,
+            exclude_sounds=exclude_str,
         )
 
     total_found = len(found_results)
@@ -117,7 +143,7 @@ if query:
         for item in results_to_show:
             display_data.append(
                 {
-                    "Слово": item.get("word", ""),
+                    "Слово": format_word_with_stress(item.get("word", ""), item.get("stress_position")),
                     "Часть речи": item.get("part_of_speech", "-"),
                     "Слоги": item.get("syllable_count", "-"),
                     "Фонемы": item.get("phonemes_list", "-"),
@@ -143,6 +169,33 @@ if query:
         
         if total_found > max_words:
             st.info(f"Показано первых {max_words} из {total_found} найденных слов.")
+
+        # --- Блок экспорта ---
+        st.subheader("Экспорт результатов")
+        export_limit = st.number_input(
+            "Количество слов для экспорта (0 = все)",
+            min_value=0,
+            max_value=total_found,
+            value=min(100, total_found),
+            step=50
+        )
+
+        if st.button("Экспортировать в HTML"):
+            limit = export_limit if export_limit > 0 else None
+            export_words(
+                found_words=found_results,
+                search_in=search_in_options[search_in],
+                limit=limit
+            )
+            st.success(f"Экспорт завершен. [Нажмите здесь, чтобы скачать файл]({EXPORT_FILE})")
+            # Предоставляем ссылку для скачивания
+            with open(EXPORT_FILE, "rb") as file:
+                st.download_button(
+                    label="Скачать HTML",
+                    data=file,
+                    file_name=EXPORT_FILE,
+                    mime="text/html"
+                )
 
     else:
         st.warning("Слов по вашему запросу не найдено. Попробуйте изменить фильтры.")

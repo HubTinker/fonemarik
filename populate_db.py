@@ -4,6 +4,7 @@ from pathlib import Path
 from data_loader import get_pos_tag_map
 from transcribe_stress import count_syllables
 from database import initialize_database  # Импортируем функцию инициализации
+from phoneme_mapper import create_phoneme_letter_mapping
 from typing import Dict, Optional, Tuple
 
 DB_FILE = "dictionary.db"
@@ -231,19 +232,27 @@ def populate_database():
         # Количество слогов
         syllable_count = count_syllables(word)
 
-        # --- Новая логика для создания списка фонем ---
+        # --- Новая логика для создания списка фонем и mapping'а ---
         phonemes_list_str = None
+        phoneme_to_letter_map_json = None
+
         if cyrillic:
             sounds = []
             i = 0
             while i < len(cyrillic):
                 # Проверяем, является ли следующий символ апострофом (знак мягкости)
-                if i + 1 < len(cyrillic) and cyrillic[i+1] == "'":
-                    sounds.append(cyrillic[i:i+2])
+                if i + 1 < len(cyrillic) and cyrillic[i + 1] == "'":
+                    sounds.append(cyrillic[i : i + 2])
                     i += 2
                 # Обрабатываем сочетания согласной с мягким знаком как мягкую согласную
-                elif i + 1 < len(cyrillic) and cyrillic[i+1] == "ь" and cyrillic[i] in "бвгджзйклмнпрстфх":
-                    sounds.append(cyrillic[i] + "'")  # Преобразуем в формат 'б', 'в'' и т.д.
+                elif (
+                    i + 1 < len(cyrillic)
+                    and cyrillic[i + 1] == "ь"
+                    and cyrillic[i] in "бвгджзйклмнпрстфхцчшщ"
+                ):
+                    sounds.append(
+                        cyrillic[i] + "'"
+                    )  # Преобразуем в формат 'б', 'в'' и т.д.
                     i += 2
                 # 'ь' и 'ъ' не являются самостоятельными фонемами в данном контексте (если не идут после согласной)
                 elif cyrillic[i] not in "ьъ":
@@ -252,14 +261,20 @@ def populate_database():
                 else:
                     i += 1
             phonemes_list_str = " ".join(sounds)
+
+            # Создаем mapping между фонемами и буквами
+            phoneme_to_letter_map_json = create_phoneme_letter_mapping(
+                word, phonemes_list_str
+            )
         # --- Конец новой логики ---
 
         try:
             cursor.execute(
                 """
                 INSERT INTO dictionary (word, part_of_speech, syllable_count, frequency,
-                                        transcription_ipa, transcription_cyrillic, stress_position, stress_sound, phonemes_list)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                        transcription_ipa, transcription_cyrillic, stress_position, 
+                                        stress_sound, phonemes_list, phoneme_to_letter_map)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     word,
@@ -271,6 +286,7 @@ def populate_database():
                     stress,
                     stress_sound,
                     phonemes_list_str,
+                    phoneme_to_letter_map_json,
                 ),
             )
         except sqlite3.IntegrityError:
@@ -279,7 +295,8 @@ def populate_database():
                 """
                 UPDATE dictionary
                 SET part_of_speech = ?, syllable_count = ?, frequency = ?,
-                    transcription_ipa = ?, transcription_cyrillic = ?, stress_position = ?, stress_sound = ?, phonemes_list = ?
+                    transcription_ipa = ?, transcription_cyrillic = ?, stress_position = ?, 
+                    stress_sound = ?, phonemes_list = ?, phoneme_to_letter_map = ?
                 WHERE word = ?
             """,
                 (
@@ -291,6 +308,7 @@ def populate_database():
                     stress,
                     stress_sound,
                     phonemes_list_str,
+                    phoneme_to_letter_map_json,
                     word,
                 ),
             )

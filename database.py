@@ -4,29 +4,25 @@ from pathlib import Path
 DB_FILE = "dictionary.db"
 
 
-def initialize_database():
+def initialize_database(conn=None):
     """
     Инициализирует базу данных SQLite и создает таблицу для словаря.
-
-    Таблица 'dictionary' будет содержать следующие поля:
-    - id: INTEGER PRIMARY KEY AUTOINCREMENT
-    - word: TEXT NOT NULL UNIQUE (слово)
-    - part_of_speech: TEXT (часть речи)
-    - syllable_count: INTEGER (количество слогов)
-    - stress_position: INTEGER (позиция ударения, 1-based)
-    - transcription_ipa: TEXT (транскрипция IPA)
-    - transcription_cyrillic: TEXT (транскрипция кириллицей)
-    - phonemes_list: TEXT (список фонем через пробел)
-    - frequency: REAL (частота слова, ipm)
+    Если conn передан, использует его, иначе создает новое соединение.
     """
-    db_path = Path(DB_FILE)
-    conn = sqlite3.connect(DB_FILE)
+    close_conn = False
+    if conn is None:
+        conn = sqlite3.connect(DB_FILE)
+        close_conn = True
+
     cursor = conn.cursor()
 
-    # Создаем таблицу, если она не существует
+    # Удаляем таблицу, если она существует, для чистоты тестов
+    cursor.execute("DROP TABLE IF EXISTS dictionary")
+
+    # Создаем таблицу
     cursor.execute(
         """
-    CREATE TABLE IF NOT EXISTS dictionary (
+    CREATE TABLE dictionary (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         word TEXT NOT NULL UNIQUE,
         part_of_speech TEXT,
@@ -36,17 +32,17 @@ def initialize_database():
         transcription_cyrillic TEXT,
         stress_sound TEXT,
         phonemes_list TEXT,
+        phoneme_to_letter_map TEXT,
         frequency REAL
     )
     """
     )
 
-    # Очищаем таблицу перед заполнением
-    cursor.execute("DELETE FROM dictionary")
-    print("Таблица 'dictionary' очищена.")
+    print("Таблица 'dictionary' создана с колонкой phoneme_to_letter_map.")
 
     conn.commit()
-    conn.close()
+    if close_conn:
+        conn.close()
     print(f"База данных '{DB_FILE}' успешно инициализирована.")
 
 
