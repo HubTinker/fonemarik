@@ -32,6 +32,9 @@ VOWEL_LETTER_TO_PHONEME = {
     "е": "е",
 }
 
+# Гласные, которые в начале слова или после гласной дают "й" + гласный звук
+YOTATED_VOWELS = {"я": "а", "ё": "о", "ю": "у", "е": "э"}
+
 # Теги для фонемных групп
 TAG_TO_PHONEMES = {
     "звонк": VOICED_CONSONANTS,
@@ -85,8 +88,16 @@ def _process_text_part(text_part: str) -> str:
             i += 1
 
         elif char in VOWEL_LETTER_TO_PHONEME:
-            # Гласная, идущая не после согласной (например, в начале слова)
-            phonemes.append(VOWEL_LETTER_TO_PHONEME[char])
+            # Проверяем, является ли гласная йотированной и стоит ли она в начале
+            # или после другой гласной (что _process_text_part не отслеживает,
+            # но для простых случаев, как "яр", это сработает, т.к. "я" первая).
+            is_yotated_position = not phonemes or phonemes[-1] in VOWELS
+
+            if char in YOTATED_VOWELS and is_yotated_position:
+                phonemes.append("й")
+                phonemes.append(YOTATED_VOWELS[char])
+            else:
+                phonemes.append(VOWEL_LETTER_TO_PHONEME[char])
             i += 1
 
         elif char == "'":
@@ -101,7 +112,16 @@ def _process_text_part(text_part: str) -> str:
             # Игнорируем неалфавитные символы (пробелы, дефисы и т.д.)
             i += 1
 
-    return " ".join(phonemes)
+    # Преобразуем фонемы к формату базы данных (с учетом пробелов перед апострофами)
+    processed_phonemes = []
+    for phoneme in phonemes:
+        if phoneme.endswith("'"):
+            # Для фонем с апострофом (мягкие согласные), 
+            # в базе данных они хранятся как: "б '"
+            processed_phonemes.append(phoneme[:-1] + r" '")
+        else:
+            processed_phonemes.append(phoneme)
+    return r" ".join(processed_phonemes)
 
 
 def parse_query_to_regex(query: str) -> str:

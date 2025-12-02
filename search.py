@@ -129,31 +129,40 @@ def find_words(
     Returns:
         Список словарей, где каждый словарь представляет найденное слово.
     """
+    # Инициализируем переменные по умолчанию
+    global_conditions = []
+    is_dsl_query = False
+
     if search_in == "phonemes":
-        regex_str = parse_query_to_regex(query)
+        is_dsl_query = any(c in query for c in ["(", ")", "*", "уд", "!"])
+
+        if is_dsl_query:
+            from dsl_parser import parse_query
+
+            try:
+                dsl_result = parse_query(query)
+                regex_str = dsl_result["sequence_regex"]
+                global_conditions = dsl_result["global_conditions"]
+            except ValueError:
+                is_dsl_query = False
+                regex_str = parse_query_to_regex(query)
+        else:
+            regex_str = parse_query_to_regex(query)
     else:
-        # Для поиска по слову: пользователь может случайно ввести
-        # фонемные теги вида [согл], [гласн] и т.п. Если мы применим
-        # query как сырой regex, квадратные скобки будут интерпретированы
-        # как character-class и приведут к ложным совпадениям.
-        # Решение: экранируем только квадратные скобки — это сохраняет
-        # возможность использования прочих regex-меток (^{}, ., $, и т.д.),
-        # но предотвращает неожиданные character-classes из тегов.
         regex_str = query.replace("[", "\\[").replace("]", "\\]")
 
-    if not regex_str:
+    if not regex_str and not global_conditions:
         return []
+
     # Адаптация регулярного выражения в зависимости от позиции
     if position == "start":
         regex_str = f"^{regex_str}"
     elif position == "end":
         regex_str = f"{regex_str}$"
-    # Для 'any' оставляем как есть
 
     try:
         search_regex = re.compile(regex_str, re.IGNORECASE)
     except re.error:
-        # В случае ошибки в регулярном выражении возвращаем пустой список
         return []
 
     close_conn = False
@@ -161,14 +170,8 @@ def find_words(
         conn = sqlite3.connect(DB_FILE)
         close_conn = True
 
-    # Использование Row для доступа к колонкам по имени
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-
-    # --- Шаг 1: Базовый SQL-запрос для фильтрации ---
-    # Мы будем фильтровать по SQL там, где это эффективно (слоги, часть речи),
-    # а по регулярному выражению - в Python, т.к. SQLite не имеет встроенной
-    # поддержки REGEXP для кириллицы по умолчанию.
 
     sql_query = "SELECT * FROM dictionary WHERE 1=1"
     params = []
@@ -182,36 +185,31 @@ def find_words(
         sql_query += " AND part_of_speech = ?"
         params.append(part_of_speech)
 
-    # Добавляем сортировку
     if sort_by_frequency:
         sql_query += " ORDER BY frequency DESC"
     else:
-        sql_query += " ORDER BY word ASC"  # Сортировка по алфавиту по умолчанию
+        sql_query += " ORDER BY word ASC"
 
     cursor.execute(sql_query, params)
     all_candidates = cursor.fetchall()
     if close_conn:
         conn.close()
 
-    # --- Шаг 2: Фильтрация по регулярному выражению в Python ---
     found_words = []
     search_field = "phonemes_list" if search_in == "phonemes" else "word"
 
-    # --- Шаг 3: Обработка и фильтрация по исключенным звукам ---
     sounds_to_exclude = set()
     if exclude_sounds:
-        # Словарь для сопоставления тегов из GUI с наборами фонем
         EXCLUDE_TAG_MAP = {
             "твердые": HARD_CONSONANTS,
             "мягкие": SOFT_CONSONANTS,
             "звонкие": VOICED_CONSONANTS,
             "глухие": VOICELESS_CONSONANTS,
-            "тверд": HARD_CONSONANTS,  # Добавим короткие варианты
+            "тверд": HARD_CONSONANTS,
             "мягк": SOFT_CONSONANTS,
             "звонк": VOICED_CONSONANTS,
             "глух": VOICELESS_CONSONANTS,
         }
-
         excluded_items = [item.strip() for item in exclude_sounds.lower().split(",")]
         for item in excluded_items:
             if item in EXCLUDE_TAG_MAP:
@@ -223,56 +221,55 @@ def find_words(
     for row in all_candidates:
         target_text = row[search_field]
 
-        # Проверяем, что target_text не None перед использованием в regex
         if not target_text:
             continue
 
-        match = search_regex.search(target_text)
-        if not match:
-            continue
+        match = None
+        if regex_str:
+            match = search_regex.search(target_text)
+            if not match:
+                continue
 
-        # Проверка на исключенные звуки
         if sounds_to_exclude:
             if row["phonemes_list"]:
-                # Используем пробел как разделитель
                 word_phonemes = set(row["phonemes_list"].split())
                 if not sounds_to_exclude.isdisjoint(word_phonemes):
                     continue
 
         word_data = dict(row)
-        # Сохраняем найденную часть, чтобы использовать её для выделения
-        word_data["matched_phonemes"] = match.group(0)
 
-        if search_in == "phonemes":
-            # Используем сохраненный mapping из БД
+        if global_conditions:
+            if not _check_global_conditions(word_data, global_conditions):
+                continue
+
+        if match:
+            word_data["matched_phonemes"] = match.group(0)
+        else:
+            if not regex_str and global_conditions:
+                word_data["matched_phonemes"] = target_text
+
+        if search_in == "phonemes" and match:
             phoneme_to_letter_map = (
                 row["phoneme_to_letter_map"]
                 if "phoneme_to_letter_map" in row.keys()
                 else None
             )
-
             if phoneme_to_letter_map:
                 try:
-                    # Считаем индексы фонем в найденном диапазоне
                     phonemes_before_match = len(
                         target_text[: match.start()].strip().split()
                     )
                     num_phonemes_in_match = len(match.group(0).strip().split())
-
                     phoneme_start_idx = phonemes_before_match
                     phoneme_end_idx = phonemes_before_match + num_phonemes_in_match - 1
-
-                    # Получаем буквы используя mapping (с проверкой удвоенных букв)
                     letter_range = get_letter_range_for_phoneme_range(
                         phoneme_to_letter_map,
                         phoneme_start_idx,
                         phoneme_end_idx,
                         word_data["word"],
                     )
-
                     if letter_range:
                         start_idx, end_idx = letter_range
-                        # Дополнительная валидация
                         if 0 <= start_idx < end_idx <= len(word_data["word"]):
                             word_data["matched_span"] = (start_idx, end_idx)
                             word_data["matched_part"] = word_data["word"][
@@ -285,7 +282,6 @@ def find_words(
                 except Exception:
                     word_data["matched_part"] = None
             else:
-                # Фолбек на старый способ для обратной совместимости
                 letters_part = map_phonemes_to_letters(
                     word_data["word"], target_text, match
                 )
@@ -294,14 +290,59 @@ def find_words(
                     word_data["matched_span"] = (letters_part[0], letters_part[1])
                 else:
                     word_data["matched_part"] = None
+        elif search_in == "phonemes" and not match:
+            word_data["matched_part"] = word_data["word"]
         else:
-            word_data["matched_part"] = match.group(
-                0
-            )  # Для поиска по слову оставляем как есть
+            word_data["matched_part"] = match.group(0) if match else target_text
 
         final_results.append(word_data)
 
     return final_results
+
+
+def _check_global_conditions(
+    word_data: Dict[str, Any], conditions: List[Dict[str, Any]]
+) -> bool:
+    """
+    Проверяет, удовлетворяет ли слово глобальным условиям (например, количество определенных звуков).
+    """
+    phonemes = word_data["phonemes_list"].split()
+
+    for condition in conditions:
+        cond_type = condition["type"]
+        cond_value = condition["value"]
+        min_q, max_q = condition["quantifier"]
+
+        if cond_type == "STRESS":
+            stress_pos = int(cond_value)
+            if (
+                "stress_position" not in word_data
+                or word_data["stress_position"] != stress_pos
+            ):
+                return False
+
+        target_phonemes = set()
+        if cond_type == "LITERAL":
+            target_phonemes = {cond_value}
+        elif cond_type == "TAG":
+            from dsl_parser import TAG_MAP
+
+            tag_names = cond_value.split(",")
+            for name in tag_names:
+                if len(name) == 1:
+                    target_phonemes.add(name)
+                elif name in TAG_MAP:
+                    target_phonemes.update(list(TAG_MAP[name]))
+
+        if not target_phonemes:
+            continue
+
+        count = sum(1 for p in phonemes if p in target_phonemes)
+
+        if not (min_q <= count and (max_q is None or count <= max_q)):
+            return False
+
+    return True
 
 
 if __name__ == "__main__":
@@ -333,6 +374,17 @@ if __name__ == "__main__":
     print(f"Результаты для существительных, оканчивающихся на фонему 'к':")
     for word_data in results_3[:5]:
         print(f"  - {word_data['word']} ({word_data['phonemes_list']})")
+    print("-" * 20)
+
+    # 4. Тест с глобальным условием
+    test_query_4 = "дом (согл)(2)"
+    results_4 = find_words(query=test_query_4, search_in="phonemes")
+    print(f"\nРезультаты для DSL-запроса с глобальным условием '{test_query_4}':")
+    for word_data in results_4[:10]:
+        print(
+            f"  - {word_data['word']} ({word_data['phonemes_list']}) -> "
+            f"Найдено: '{word_data['matched_part']}'"
+        )
     print("-" * 20)
 
 
@@ -368,17 +420,12 @@ def find_words_intelligent(
     final_query = query
     is_word_in_db = False
 
-    # Если поиск идет по фонемам и запрос не содержит спецсимволов,
-    # предполагаем, что это может быть слово.
     if search_in == "phonemes" and not re.search(r"[\[\]\*,]", query):
         phonemes_from_db = _get_phonemes_for_word(query.lower(), conn)
         if phonemes_from_db:
             final_query = phonemes_from_db
             is_word_in_db = True
 
-    # Если мы нашли слово в базе, поиск должен быть по всей строке фонем.
-    # Поэтому принудительно устанавливаем position = 'any', чтобы регулярное выражение
-    # не было ограничено началом или концом строки.
     if is_word_in_db:
         position = "any"
 
