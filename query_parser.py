@@ -83,8 +83,9 @@ def _process_text_part(text_part: str) -> str:
                     i += 2
                     continue
 
-            # Если нет признаков мягкости, согласная твердая
-            phonemes.append(char)
+            # Если нет признаков мягкости, согласная может быть и твердой, и мягкой.
+            # Создаем группу, которая найдет оба варианта.
+            phonemes.append(f"({char}'|{char})")
             i += 1
 
         elif char in VOWEL_LETTER_TO_PHONEME:
@@ -116,7 +117,7 @@ def _process_text_part(text_part: str) -> str:
     processed_phonemes = []
     for phoneme in phonemes:
         if phoneme.endswith("'"):
-            # Для фонем с апострофом (мягкие согласные), 
+            # Для фонем с апострофом (мягкие согласные),
             # в базе данных они хранятся как: "б '"
             processed_phonemes.append(phoneme[:-1] + r" '")
         else:

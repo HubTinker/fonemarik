@@ -95,9 +95,7 @@ if query:
     }
     search_pos = pos_map[position]
 
-    syllables = [int(s) for s in syllable_count if s.isdigit()]
-    if not syllables:
-        syllables = None
+    syllables = syllable_count if syllable_count else None
 
     # Получаем тег части речи для БД
     pos_tag = None
@@ -223,6 +221,7 @@ with st.expander("Как пользоваться фонемным поиско�
         - `(любой)` — любая гласная или согласная
 
         **Группы и условия:**
+        - `в**в` — буква в слове должна встречаться 2 раза, г**г**г — г встречаться 3 раза и т.д.
         - `(а,о,у)` — любая из фонем в группе (работает как "ИЛИ").
         - `(к,с,т)а` — найдет "ка", "са", "та".
         - `!` — указывает, что предыдущая фонема или группа **должна быть ударной**.

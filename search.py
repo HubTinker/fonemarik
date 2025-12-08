@@ -108,9 +108,12 @@ def find_words(
     query: str,
     syllable_count: Optional[List[int]] = None,
     part_of_speech: Optional[str] = None,
-    position: str = "any",  # 'any', 'start', 'end'
+    position: str = "any",  # 'any', 'start', 'end', or comma-separated like 'start,end'
     search_in: str = "phonemes",  # 'phonemes' or 'word'
     sort_by_frequency: bool = False,
+    stress_sound: Optional[str] = None,
+    phonological_hardness: Optional[str] = None,  # 'hard' or 'soft'
+    phonological_voicing: Optional[str] = None,  # 'voiced' or 'voiceless'
     exclude_sounds: Optional[str] = None,
     conn: Optional[sqlite3.Connection] = None,
 ) -> List[Dict[str, Any]]:
@@ -124,7 +127,11 @@ def find_words(
         position: Позиция шаблона в слове ('any', 'start', 'end').
         search_in: Область поиска ('phonemes' для транскрипции, 'word' для слова).
         sort_by_frequency: Если True, сортирует результаты по убыванию частотности.
-        exclude_sounds: Строка со звуками для исключения, разделенными запятой.
+        exclude_sounds: Строка со звуками/тегами для исключения, разделенными запятой.
+        stress_sound: Фильтр по ударному гласному.
+        phonological_hardness: Фильтр по твердости/мягкости ('hard' или 'soft').
+        phonological_voicing: Фильтр по звонкости/глухости ('voiced' или 'voiceless').
+        conn: Соединение с базой данных.
 
     Returns:
         Список словарей, где каждый словарь представляет найденное слово.
@@ -154,14 +161,42 @@ def find_words(
     if not regex_str and not global_conditions:
         return []
 
-    # Адаптация регулярного выражения в зависимости от позиции
-    if position == "start":
-        regex_str = f"^{regex_str}"
-    elif position == "end":
-        regex_str = f"{regex_str}$"
+    # --- Адаптация регулярного выражения в зависимости от позиции ---
+    # position может быть 'any', 'start', 'end', 'middle', или 'start,end' и т.д.
+    positions = {p.strip() for p in position.split(",")}
+
+    # Если 'any' присутствует или список пуст, то позиция не важна
+    if "any" in positions or not positions:
+        final_regex_str = regex_str
+    else:
+        # Собираем части для сложного regex
+        regex_parts = []
+        if "start" in positions:
+            regex_parts.append(f"^{regex_str}")
+        if "middle" in positions:
+            # Ищет не в начале и не в конце
+            regex_parts.append(f".+{regex_str}.+")
+        if "end" in positions:
+            regex_parts.append(f"{regex_str}$")
+
+        # Если выбрано и начало, и конец, и середина, это эквивалентно 'any'
+        if {"start", "middle", "end"}.issubset(positions):
+            final_regex_str = regex_str
+        # Если выбрано начало и середина, то это "не в конце"
+        elif {"start", "middle"}.issubset(positions):
+            final_regex_str = f"(^{regex_str}|.+{regex_str}.+)"
+        # Если выбрана середина и конец, то это "не в начале"
+        elif {"middle", "end"}.issubset(positions):
+            final_regex_str = f"(.+{regex_str}.+|{regex_str}$)"
+        else:
+            final_regex_str = "|".join(regex_parts)
 
     try:
-        search_regex = re.compile(regex_str, re.IGNORECASE)
+        # Если regex пустой, но есть глобальные условия, нам не нужна компиляция
+        if not final_regex_str and global_conditions:
+            search_regex = None
+        else:
+            search_regex = re.compile(final_regex_str, re.IGNORECASE)
     except re.error:
         return []
 
@@ -185,6 +220,10 @@ def find_words(
         sql_query += " AND part_of_speech = ?"
         params.append(part_of_speech)
 
+    if stress_sound:
+        sql_query += " AND stress_sound = ?"
+        params.append(stress_sound)
+
     if sort_by_frequency:
         sql_query += " ORDER BY frequency DESC"
     else:
@@ -198,25 +237,6 @@ def find_words(
     found_words = []
     search_field = "phonemes_list" if search_in == "phonemes" else "word"
 
-    sounds_to_exclude = set()
-    if exclude_sounds:
-        EXCLUDE_TAG_MAP = {
-            "твердые": HARD_CONSONANTS,
-            "мягкие": SOFT_CONSONANTS,
-            "звонкие": VOICED_CONSONANTS,
-            "глухие": VOICELESS_CONSONANTS,
-            "тверд": HARD_CONSONANTS,
-            "мягк": SOFT_CONSONANTS,
-            "звонк": VOICED_CONSONANTS,
-            "глух": VOICELESS_CONSONANTS,
-        }
-        excluded_items = [item.strip() for item in exclude_sounds.lower().split(",")]
-        for item in excluded_items:
-            if item in EXCLUDE_TAG_MAP:
-                sounds_to_exclude.update(EXCLUDE_TAG_MAP[item])
-            elif item:
-                sounds_to_exclude.add(item)
-
     final_results = []
     for row in all_candidates:
         target_text = row[search_field]
@@ -225,21 +245,31 @@ def find_words(
             continue
 
         match = None
-        if regex_str:
+        if search_regex:
             match = search_regex.search(target_text)
             if not match:
                 continue
-
-        if sounds_to_exclude:
-            if row["phonemes_list"]:
-                word_phonemes = set(row["phonemes_list"].split())
-                if not sounds_to_exclude.isdisjoint(word_phonemes):
-                    continue
+        # Если regex нет, но есть глобальные условия, то match не нужен
+        elif not global_conditions:
+            continue
 
         word_data = dict(row)
 
+        # --- Новая логика проверки фонологических признаков ---
+        if match and search_in == "phonemes":
+            matched_phonemes_str = match.group(0)
+            if not _check_phonological_features(
+                matched_phonemes_str, phonological_hardness, phonological_voicing
+            ):
+                continue
+
         if global_conditions:
             if not _check_global_conditions(word_data, global_conditions):
+                continue
+
+        # --- Проверка на исключение звуков ---
+        if exclude_sounds:
+            if not _check_exclusions(word_data, exclude_sounds):
                 continue
 
         if match:
@@ -300,6 +330,47 @@ def find_words(
     return final_results
 
 
+def _check_phonological_features(
+    phonemes_str: str, hardness: Optional[str], voicing: Optional[str]
+) -> bool:
+    """
+    Проверяет, содержит ли строка фонем хотя бы один согласный,
+    соответствующий заданным признакам.
+    """
+    if not hardness and not voicing:
+        return True
+
+    phonemes = phonemes_str.strip().split()
+    consonants_in_match = [
+        p for p in phonemes if p in HARD_CONSONANTS or p in SOFT_CONSONANTS
+    ]
+
+    # Если в найденном фрагменте нет согласных, а фильтры есть, то совпадения нет
+    if not consonants_in_match and (hardness or voicing):
+        return False
+
+    # --- Проверка на соответствие ХОТЯ БЫ ОДНОГО согласного ---
+    # Если фильтр есть, но ни один согласный ему не удовлетворяет, то False.
+
+    if hardness == "hard":
+        if not any(p in HARD_CONSONANTS for p in consonants_in_match):
+            return False
+
+    if hardness == "soft":
+        if not any(p in SOFT_CONSONANTS for p in consonants_in_match):
+            return False
+
+    if voicing == "voiced":
+        if not any(p in VOICED_CONSONANTS for p in consonants_in_match):
+            return False
+
+    if voicing == "voiceless":
+        if not any(p in VOICELESS_CONSONANTS for p in consonants_in_match):
+            return False
+
+    return True
+
+
 def _check_global_conditions(
     word_data: Dict[str, Any], conditions: List[Dict[str, Any]]
 ) -> bool:
@@ -341,6 +412,37 @@ def _check_global_conditions(
 
         if not (min_q <= count and (max_q is None or count <= max_q)):
             return False
+
+    return True
+
+
+def _check_exclusions(word_data: Dict[str, Any], exclude_str: str) -> bool:
+    """
+    Проверяет, содержит ли слово запрещенные звуки или категории звуков.
+    Возвращает False, если найдено хотя бы одно исключение.
+    """
+    if not exclude_str:
+        return True
+
+    from query_parser import TAG_TO_PHONEMES
+
+    phonemes_in_word = set(word_data["phonemes_list"].split())
+
+    # Разбираем строку исключений на отдельные фонемы и теги
+    exclusions = {item.strip() for item in exclude_str.split(",") if item.strip()}
+
+    # Собираем полный сет фонем для исключения
+    phonemes_to_exclude = set()
+    for ex in exclusions:
+        if ex in TAG_TO_PHONEMES:
+            phonemes_to_exclude.update(TAG_TO_PHONEMES[ex])
+        else:
+            # Добавляем как литерал (например, "а" или "б'")
+            phonemes_to_exclude.add(ex)
+
+    # Если есть пересечение между фонемами слова и фонемами для исключения, слово не подходит
+    if not phonemes_in_word.isdisjoint(phonemes_to_exclude):
+        return False
 
     return True
 
@@ -408,6 +510,8 @@ def find_words_intelligent(
     search_in: str = "phonemes",
     sort_by_frequency: bool = False,
     exclude_sounds: Optional[str] = None,
+    phonological_hardness: Optional[str] = None,
+    phonological_voicing: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """
     Интеллектуальная обертка для find_words.
@@ -437,6 +541,8 @@ def find_words_intelligent(
         search_in=search_in,
         sort_by_frequency=sort_by_frequency,
         exclude_sounds=exclude_sounds,
+        phonological_hardness=phonological_hardness,
+        phonological_voicing=phonological_voicing,
         conn=conn,
     )
 
