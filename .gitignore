@@ -10,7 +10,6 @@ log.txt
 
 # Базы данных и временные данные
 *.db
-!dictionary.db
 *.json
 *.jsonl
 *.csv

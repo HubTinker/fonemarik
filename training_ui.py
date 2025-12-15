@@ -22,6 +22,7 @@ def show_training_ui():
         "Выберите коллекцию для тренировки:",
         options=list(collection_names.keys()),
         format_func=lambda x: collection_names[x],
+        key="selected_collection_id",  # Добавляем ключ для доступа к значению
     )
 
     if not selected_collection_id:
@@ -62,32 +63,28 @@ def show_training_ui():
 
     # --- ASR Компонент ---
     st.markdown("---")
-    st.write("Нажмите 'Говорите' и произнесите слово:")
+    st.write("Нажмите кнопку и произнесите слово:")
+    web_speech_api_component()
 
-    # Используем ASR клиент для получения аудио
-    asr_result = web_speech_api_component()
+    # --- Обработка результата (ТОЛЬКО из URL) ---
+    if "transcript" in st.query_params:
+        recognized_text = st.query_params["transcript"]
+        st.query_params.clear()  # Очищаем, чтобы не обрабатывать повторно
 
-    if isinstance(asr_result, dict):
-        if asr_result.get("text"):
-            recognized_text = asr_result.get("text", "").strip()
+        # Проверяем произношение
+        result = trainer.check_pronunciation(current_word, recognized_text)
+        result_data["attempts"] += 1
+        is_success = result == "ok"
+        if is_success:
+            result_data["success"] = True
 
-            # Проверяем произношение
-            result = trainer.check_pronunciation(current_word, recognized_text)
-
-            # Обновляем состояние сессии
-            result_data["attempts"] += 1
-            if result == "ok":
-                result_data["success"] = True
-                st.success(f"🎉 Верно! Вы сказали: **{recognized_text}**")
-            else:
-                st.error(
-                    f"🤔 Ошибка. Вы сказали: **{recognized_text}**. Попробуйте еще раз."
-                )
-
-            # Просто перезапускаем, чтобы компонент сбросился и мы не обрабатывали результат повторно
-            st.rerun()
-        elif asr_result.get("error"):
-            st.error(f"Ошибка распознавания речи: {asr_result.get('error')}")
+        if is_success:
+            st.success(f"🎉 Верно! Вы сказали: **{recognized_text}**")
+        else:
+            st.error(
+                f"🤔 Ошибка. Вы сказали: **{recognized_text}**. Попробуйте еще раз."
+            )
+        st.rerun()
 
     # --- Статус и прогресс ---
     st.markdown("---")

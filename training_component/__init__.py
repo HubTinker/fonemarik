@@ -89,22 +89,66 @@ def web_speech_api_component():
           recognition.onresult = (event) => {
               const transcript = event.results[0][0].transcript;
               const confidence = event.results[0][0].confidence;
-              // Отправляем результат в Streamlit
+              
+              console.log('Распознано:', transcript); // Для отладки в браузере
+              
+              // Отправляем результат в Streamlit как объект
+              // Streamlit получит это значение как возвращаемое из `components.html`
+              // Streamlit в iframe ожидает postMessage.
+              // Для совместимости с режимом отладки, отправляем и туда, и в основной компонент.
               window.parent.postMessage({
-                  type: 'streamlit:component-ready',
-                  data: {text: transcript, confidence: confidence}
+                  type: 'streamlit:setComponentValue',
+                  value: { transcript: transcript, confidence: confidence }
               }, '*');
+
+              // Для основного приложения, если оно не в iframe
+              if (window.Streamlit) {
+                  window.Streamlit.setComponentValue({ transcript: transcript, confidence: confidence });
+              }
           };
 
           recognition.onerror = (event) => {
               statusDiv.textContent = 'Ошибка распознавания: ' + event.error;
+              console.error('Ошибка SpeechRecognition:', event.error); // Для отладки
+
+              // Отправляем ошибку в Streamlit
               window.parent.postMessage({
-                type: 'streamlit:component-ready',
-                data: {text: '', error: event.error}
+                  'error': event.error
               }, '*');
           };
 
           micButton.addEventListener('click', () => {
+              // --- РЕЖИМ ОТЛАДКИ ---
+              // Чтобы его включить, откройте консоль разработчика в браузере (F12)
+              // и выполните команду: sessionStorage.setItem('debug_mode', 'true');
+              // Чтобы выключить: sessionStorage.removeItem('debug_mode');
+              if (sessionStorage.getItem('debug_mode') === 'true') {
+                  const testTranscript = 'тестовое слово';
+                  console.log('РЕЖИМ ОТЛАДКИ: Отправка тестового результата:', testTranscript);
+                  statusDiv.textContent = 'Статус: Отправка тестового результата...';
+                  
+                  // Безопасно отправляем тестовый результат в Streamlit через postMessage
+                  window.parent.postMessage({
+                      type: 'streamlit:setComponentValue',
+                      value: {
+                          'transcript': testTranscript,
+                          'confidence': 1.0,
+                          'debug': true // Флаг для отладки на стороне Python
+                      }
+                  }, '*');
+                  
+                  // Также имитируем стандартное поведение для прямого встраивания
+                  if (window.Streamlit) {
+                      window.Streamlit.setComponentValue({
+                          'transcript': testTranscript,
+                          'confidence': 1.0,
+                          'debug': true
+                      });
+                  }
+                  return;
+              }
+              // --- Конец режима отладки ---
+
               recognition.start();
           });
       }
