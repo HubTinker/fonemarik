@@ -28,7 +28,6 @@ from PyQt6.QtGui import QAction
 from text_utils import format_word_with_stress
 from pos_mapper import POS_NAMES_LIST
 from state_manager import StateManager
-from query_helper import QueryHelperWidget
 
 
 class WordCollectionModel(QAbstractTableModel):
@@ -267,7 +266,6 @@ class ModernFonemarikApp(QMainWindow):
         self.initUI()
         self.connect_signals()
         self.update_status_bar()
-        self.query_helper.tag_clicked.connect(self.on_tag_clicked)
 
     def connect_signals(self):
         self.query_input.textChanged.connect(self.state_manager.set_query)
@@ -290,6 +288,7 @@ class ModernFonemarikApp(QMainWindow):
                 self.syllable_count_widget.get_checked_values()
             )
         )
+        self.exclude_input.textChanged.connect(self.state_manager.set_exclude_sounds)
         self.hardness_group.buttonClicked.connect(self.on_hardness_changed)
         self.voicing_group.buttonClicked.connect(self.on_voicing_changed)
         self.state_manager.search_results_updated.connect(self.update_results_table)
@@ -380,10 +379,6 @@ class ModernFonemarikApp(QMainWindow):
 
         main_filters_layout.addLayout(common_filters_layout)
         layout.addLayout(main_filters_layout)
-
-        # --- Справка по языку запросов ---
-        self.query_helper = QueryHelperWidget()
-        layout.addWidget(self.query_helper)
 
         self.advanced_filters_toggle_button = QToolButton()
         self.advanced_filters_toggle_button.setText("Расширенные фильтры ▼")
@@ -866,6 +861,16 @@ class ModernFonemarikApp(QMainWindow):
                 add_button.clicked.connect(
                     partial(self.on_add_button_clicked, row_index)
                 )
+
+    def on_tag_clicked(self, tag):
+        """Добавляет тег из справки в поле ввода."""
+        current_text = self.query_input.text()
+        # Добавляем пробел, если поле не пустое и не заканчивается пробелом
+        if current_text and not current_text.endswith(" "):
+            self.query_input.setText(current_text + " " + tag)
+        else:
+            self.query_input.setText(current_text + tag)
+        self.query_input.setFocus()
 
     def on_tag_clicked(self, tag):
         """Добавляет тег из справки в поле ввода."""

@@ -9,7 +9,7 @@ import sqlite3
 import re
 from typing import List, Dict, Any, Optional
 
-from query_parser import parse_query_to_regex
+from dsl_parser import parse_query
 from text_utils import text_to_phonemes
 from phoneme_mapper import get_letter_range_for_phoneme_range
 from phonology_rules import (
@@ -136,27 +136,23 @@ def find_words(
     Returns:
         Список словарей, где каждый словарь представляет найденное слово.
     """
-    # Инициализируем переменные по умолчанию
     global_conditions = []
-    is_dsl_query = False
+    regex_str = ""
 
     if search_in == "phonemes":
-        is_dsl_query = any(c in query for c in ["(", ")", "*", "уд", "!"])
-
-        if is_dsl_query:
-            from dsl_parser import parse_query
-
-            try:
-                dsl_result = parse_query(query)
-                regex_str = dsl_result["sequence_regex"]
-                global_conditions = dsl_result["global_conditions"]
-            except ValueError:
-                is_dsl_query = False
-                regex_str = parse_query_to_regex(query)
-        else:
-            regex_str = parse_query_to_regex(query)
+        try:
+            # Всегда используем унифицированный DSL-парсер
+            dsl_result = parse_query(query)
+            regex_str = dsl_result["sequence_regex"]
+            global_conditions = dsl_result["global_conditions"]
+        except ValueError as e:
+            # Если парсер выдает ошибку (например, неверный синтаксис),
+            # возвращаем пустой результат, чтобы избежать падения.
+            print(f"Ошибка разбора запроса '{query}': {e}")
+            return []
     else:
-        regex_str = query.replace("[", "\\[").replace("]", "\\]")
+        # Для поиска по слову оставляем простое экранирование
+        regex_str = re.escape(query)
 
     if not regex_str and not global_conditions:
         return []
@@ -424,7 +420,7 @@ def _check_exclusions(word_data: Dict[str, Any], exclude_str: str) -> bool:
     if not exclude_str:
         return True
 
-    from query_parser import TAG_TO_PHONEMES
+    from dsl_parser import TAG_MAP
 
     phonemes_in_word = set(word_data["phonemes_list"].split())
 
@@ -434,8 +430,8 @@ def _check_exclusions(word_data: Dict[str, Any], exclude_str: str) -> bool:
     # Собираем полный сет фонем для исключения
     phonemes_to_exclude = set()
     for ex in exclusions:
-        if ex in TAG_TO_PHONEMES:
-            phonemes_to_exclude.update(TAG_TO_PHONEMES[ex])
+        if ex in TAG_MAP:
+            phonemes_to_exclude.update(TAG_MAP[ex])
         else:
             # Добавляем как литерал (например, "а" или "б'")
             phonemes_to_exclude.add(ex)

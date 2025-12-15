@@ -318,5 +318,155 @@ def populate_database():
     print(f"База данных '{DB_FILE}' успешно заполнена/обновлена {len(words)} словами.")
 
 
+def update_phonemes_with_stress():
+    """
+    Обновляет столбец phonemes_list в таблице dictionary, добавляя ударение к гласной после знака ˈ в IPA.
+    """
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+
+    # Получаем все записи из таблицы
+    cursor.execute("SELECT id, word, transcription_ipa FROM dictionary")
+    records = cursor.fetchall()
+
+    print(f"Найдено {len(records)} записей для обновления phonemes_list...")
+
+    for record_id, word, transcription_ipa in records:
+        if transcription_ipa:
+            # Извлекаем кириллическую транскрипцию
+            cursor.execute("SELECT transcription_cyrillic FROM dictionary WHERE id = ?", (record_id,))
+            cyrillic_result = cursor.fetchone()
+            if cyrillic_result and cyrillic_result[0]:
+                cyrillic_transcription = cyrillic_result[0]
+
+                # Преобразуем IPA в новый список фонем с ударением
+                new_phonemes_list = convert_ipa_to_phonemes_with_stress(
+                    transcription_ipa, cyrillic_transcription
+                )
+
+                # Обновляем поле phonemes_list
+                cursor.execute(
+                    "UPDATE dictionary SET phonemes_list = ? WHERE id = ?",
+                    (new_phonemes_list, record_id)
+                )
+
+    conn.commit()
+    conn.close()
+    print("Обновление phonemes_list завершено.")
+
+
+def convert_ipa_to_phonemes_with_stress(ipa_transcription: str, cyrillic_transcription: str) -> str:
+    """
+    Преобразует IPA транскрипцию в список фонем, добавляя ударение к гласной после знака ˈ.
+    Также обрабатывает мягкие согласные (например, lʲ -> л').
+    """
+    # Удаляем скобки и слэши из IPA
+    clean_ipa = ipa_transcription.strip("[]/").replace("..", "")
+    
+    # Словарь для преобразования IPA в кирилические фонемы
+    ipa_to_phoneme = {
+        "a": "а",
+        "e": "е",
+        "i": "и",
+        "o": "о",
+        "u": "у",
+        "ə": "а",
+        "ɐ": "а",
+        "ɛ": "э",
+        "ɪ": "и",
+        "ɔ": "о",
+        "ʊ": "у",
+        "ʉ": "у",
+        "ɨ": "ы",
+        "æ": "а",
+        "ɵ": "о",
+        "b": "б",
+        "d": "д",
+        "f": "ф",
+        "g": "г",
+        "k": "к",
+        "l": "л",
+        "m": "м",
+        "n": "н",
+        "p": "п",
+        "r": "р",
+        "s": "с",
+        "t": "т",
+        "v": "в",
+        "z": "з",
+        "ʃ": "ш",
+        "ʒ": "ж",
+        "x": "х",
+        "j": "й",
+        "ts": "ц",
+        "tʃ": "ч",
+        "ɕ": "щ",
+        "ʂ": "ш",
+        "ʐ": "ж",
+        "c": "ц",
+        "t͡s": "ц",
+        "t͡ɕ": "ч",
+        "d͡z": "дз",
+        "ɡ": "г",
+        "lʲ": "л'",
+        "nʲ": "н'",
+        "tʲ": "т'",
+        "dʲ": "д'",
+        "sʲ": "с'",
+        "zʲ": "з'",
+        "rʲ": "р'",
+        "kʲ": "к'",
+        "gʲ": "г'",
+        "xʲ": "х'",
+        "ɫ": "л",
+        "ʲ": "ь",
+        "ː": "",
+        "ˈ": "ˈ",  # Оставляем знак ударения для определения позиции
+        "ˌ": "",
+        "(": "",
+        ")": "",
+        "[": "",
+        "]": "",
+    }
+
+    # Сортируем ключи по длине в обратном порядке для корректного поиска
+    sorted_keys = sorted(ipa_to_phoneme.keys(), key=len, reverse=True)
+
+    # Ищем позицию ударения
+    stress_pos = clean_ipa.find("ˈ")
+    
+    # Преобразуем IPA в фонемы
+    phonemes = []
+    i = 0
+    while i < len(clean_ipa):
+        # Пропускаем знак ударения, но отмечаем его позицию
+        if clean_ipa[i] == "ˈ":
+            i += 1
+            continue
+            
+        match = None
+        for key in sorted_keys:
+            if clean_ipa.startswith(key, i):
+                match = key
+                break
+
+        if match:
+            phoneme = ipa_to_phoneme[match]
+            # Если это гласный звук сразу после ударения, добавляем апостроф
+            if stress_pos != -1 and i == stress_pos + 1 and phoneme in "аеёиоуыэюя":
+                phoneme = phoneme + "'"
+            phonemes.append(phoneme)
+            i += len(match)
+        else:
+            # Если совпадения не найдено, просто пропускаем символ
+            i += 1
+
+    # Удаляем пустые строки из результата
+    phonemes = [p for p in phonemes if p]
+
+    return " ".join(phonemes)
+
+
 if __name__ == "__main__":
-    populate_database()
+    # populate_database()
+    update_phonemes_with_stress()

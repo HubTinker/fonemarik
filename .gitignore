@@ -34,3 +34,8 @@ rules.md
 workflows.md
 generals.prompt.md
 words_export.html
+
+# Папки сборки и дистрибутивов
+build/
+dist/
+tests/

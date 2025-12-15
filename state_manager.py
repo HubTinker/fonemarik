@@ -69,6 +69,7 @@ class StateManager(QObject):
         self.sort_by_frequency = False
         self.phonological_hardness = None  # 'hard' or 'soft'
         self.phonological_voicing = None  # 'voiced' or 'voiceless'
+        self.exclude_sounds = None
 
         # --- Состояние пагинации ---
         self.current_page = 1
@@ -141,6 +142,11 @@ class StateManager(QObject):
         self.phonological_voicing = voicing
         self.start_search_timer()
 
+    def set_exclude_sounds(self, sounds: str):
+        """Обновляет фильтр исключаемых звуков."""
+        self.exclude_sounds = sounds.strip() if sounds else None
+        self.start_search_timer()
+
     def set_page_size(self, size: int):
         """Устанавливает новый размер страницы и пересчитывает пагинацию."""
         if size > 0:
@@ -162,6 +168,7 @@ class StateManager(QObject):
         self.sort_by_frequency = False
         self.phonological_hardness = None
         self.phonological_voicing = None
+        self.exclude_sounds = None
         self.current_page = 1
         self.total_pages = 1
 
@@ -198,6 +205,7 @@ class StateManager(QObject):
                 stress_sound=self.stress_sound,
                 phonological_hardness=self.phonological_hardness,
                 phonological_voicing=self.phonological_voicing,
+                exclude_sounds=self.exclude_sounds,
             )
             self.current_page = 1
             self.total_pages = max(
