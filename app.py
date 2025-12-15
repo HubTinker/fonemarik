@@ -5,6 +5,13 @@ from search import find_words
 from pos_mapper import POS_NAME_TO_TAG, POS_NAMES_LIST
 from text_utils import format_word_with_stress
 from export_words import export_words, EXPORT_FILE
+from collection_manager_ui import show_collection_manager
+from training_ui import show_training_ui
+from database import create_tables_if_not_exist
+
+# --- Инициализация базы данных ---
+# Гарантирует, что все таблицы, включая новые, существуют.
+create_tables_if_not_exist()
 
 # --- Конфигурация страницы ---
 st.set_page_config(
@@ -14,15 +21,25 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# --- Боковая панель с фильтрами ---
+# --- Боковая панель с навигацией и фильтрами ---
 with st.sidebar:
-    st.header("Фильтры поиска")
+    st.title("Фонемарик")
 
-    query = st.text_input(
-        "Запрос",
-        placeholder="Введите DSL-запрос...",
-        help="Используйте DSL-синтаксис: (гласн), (согл), (тверд), (мягк), (звонк), (глух), уд1, уд2 и т.д.",
+    app_mode = st.radio(
+        "Выберите раздел:",
+        ["Поиск", "Коллекции", "Тренировка"],
+        horizontal=True,
     )
+
+    st.divider()
+
+    if app_mode == "Поиск":
+        st.header("Фильтры поиска")
+        query = st.text_input(
+            "Запрос",
+            placeholder="Введите DSL-запрос...",
+            help="Используйте DSL-синтаксис: (гласн), (согл), (тверд), (мягк), (звонк), (глух), уд1, уд2 и т.д.",
+        )
 
     exclude_sounds_input = st.text_input(
         "Исключить конкретные звуки",
@@ -82,159 +99,170 @@ with st.sidebar:
     )
 
 # --- Основная часть интерфейса ---
-st.title("🔠 Фонемарик")
-st.markdown("База для подбора слов по их фонемному составу.")
 
 
-if query:
-    # Преобразование параметров для функции поиска
-    pos_map = {
-        "в любом месте": "any",
-        "в начале слова": "start",
-        "в конце слова": "end",
-    }
-    search_pos = pos_map[position]
+def show_search_page():
+    """Отображает страницу поиска."""
+    st.title("🔠 Поиск по словарю")
+    st.markdown("База для подбора слов по их фонемному составу.")
 
-    syllables = syllable_count if syllable_count else None
+    if query:
+        # Преобразование параметров для функции поиска
+        pos_map = {
+            "в любом месте": "any",
+            "в начале слова": "start",
+            "в конце слова": "end",
+        }
+        search_pos = pos_map[position]
 
-    # Получаем тег части речи для БД
-    pos_tag = None
-    if part_of_speech != "Любая":
-        pos_tag = POS_NAME_TO_TAG.get(part_of_speech)
+        syllables = syllable_count if syllable_count else None
 
-    # --- Сбор всех исключений ---
-    exclude_list = []
-    if exclude_sounds_input:
-        exclude_list.append(exclude_sounds_input)
-    if exclude_hard:
-        exclude_list.append("тверд")
-    if exclude_soft:
-        exclude_list.append("мягк")
-    if exclude_voiced:
-        exclude_list.append("звонк")
-    if exclude_voiceless:
-        exclude_list.append("глух")
+        # Получаем тег части речи для БД
+        pos_tag = None
+        if part_of_speech != "Любая":
+            pos_tag = POS_NAME_TO_TAG.get(part_of_speech)
 
-    exclude_str = ",".join(exclude_list)
+        # --- Сбор всех исключений ---
+        exclude_list = []
+        if exclude_sounds_input:
+            exclude_list.append(exclude_sounds_input)
+        if exclude_hard:
+            exclude_list.append("тверд")
+        if exclude_soft:
+            exclude_list.append("мягк")
+        if exclude_voiced:
+            exclude_list.append("звонк")
+        if exclude_voiceless:
+            exclude_list.append("глух")
 
-    with st.spinner("Идет поиск по словарю..."):
-        # Вызов основной функции поиска
-        found_results = find_words(
-            query=query,
-            syllable_count=syllables,
-            part_of_speech=pos_tag,
-            position=search_pos,
-            search_in=search_in_options[search_in],
-            sort_by_frequency=sort_by_freq,
-            exclude_sounds=exclude_str,
-        )
+        exclude_str = ",".join(exclude_list)
 
-    total_found = len(found_results)
-
-    if total_found > 0:
-        st.success(f"Найдено слов: {total_found}")
-
-        # Ограничиваем вывод
-        results_to_show = found_results[:max_words]
-
-        # --- Подготовка данных для отображения ---
-        display_data = []
-        for item in results_to_show:
-            display_data.append(
-                {
-                    "Слово": format_word_with_stress(
-                        item.get("word", ""), item.get("stress_position")
-                    ),
-                    "Часть речи": item.get("part_of_speech", "-"),
-                    "Слоги": item.get("syllable_count", "-"),
-                    "Фонемы": item.get("phonemes_list", "-"),
-                    "Транскрипция": item.get("transcription_cyrillic", "-"),
-                }
-            )
-
-        df = pd.DataFrame(display_data)
-
-        # Стилизация таблицы для лучшей читаемости
-        st.dataframe(
-            df,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "Слово": st.column_config.TextColumn(width="medium"),
-                "Часть речи": st.column_config.TextColumn(width="small"),
-                "Слоги": st.column_config.NumberColumn(width="small"),
-                "Фонемы": st.column_config.TextColumn(width="large"),
-                "Транскрипция": st.column_config.TextColumn(width="large"),
-            },
-        )
-
-        if total_found > max_words:
-            st.info(f"Показано первых {max_words} из {total_found} найденных слов.")
-
-        # --- Блок экспорта ---
-        st.subheader("Экспорт результатов")
-        export_limit = st.number_input(
-            "Количество слов для экспорта (0 = все)",
-            min_value=0,
-            max_value=total_found,
-            value=min(100, total_found),
-            step=50,
-        )
-
-        if st.button("Экспортировать в HTML"):
-            limit = export_limit if export_limit > 0 else None
-            export_words(
-                found_words=found_results,
+        with st.spinner("Идет поиск по словарю..."):
+            # Вызов основной функции поиска
+            found_results = find_words(
+                query=query,
+                syllable_count=syllables,
+                part_of_speech=pos_tag,
+                position=search_pos,
                 search_in=search_in_options[search_in],
-                limit=limit,
+                sort_by_frequency=sort_by_freq,
+                exclude_sounds=exclude_str,
             )
-            st.success(f"Экспорт завершен. Скачайте и распечатайте файл")
-            # Предоставляем ссылку для скачивания
-            with open(EXPORT_FILE, "rb") as file:
-                st.download_button(
-                    label="Скачать HTML",
-                    data=file,
-                    file_name=EXPORT_FILE,
-                    mime="text/html",
+
+        total_found = len(found_results)
+
+        if total_found > 0:
+            st.success(f"Найдено слов: {total_found}")
+
+            # Ограничиваем вывод
+            results_to_show = found_results[:max_words]
+
+            # --- Подготовка данных для отображения ---
+            display_data = []
+            for item in results_to_show:
+                display_data.append(
+                    {
+                        "Слово": format_word_with_stress(
+                            item.get("word", ""), item.get("stress_position")
+                        ),
+                        "Часть речи": item.get("part_of_speech", "-"),
+                        "Слоги": item.get("syllable_count", "-"),
+                        "Фонемы": item.get("phonemes_list", "-"),
+                        "Транскрипция": item.get("transcription_cyrillic", "-"),
+                    }
                 )
 
+            df = pd.DataFrame(display_data)
+
+            # Стилизация таблицы для лучшей читаемости
+            st.dataframe(
+                df,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Слово": st.column_config.TextColumn(width="medium"),
+                    "Часть речи": st.column_config.TextColumn(width="small"),
+                    "Слоги": st.column_config.NumberColumn(width="small"),
+                    "Фонемы": st.column_config.TextColumn(width="large"),
+                    "Транскрипция": st.column_config.TextColumn(width="large"),
+                },
+            )
+
+            if total_found > max_words:
+                st.info(f"Показано первых {max_words} из {total_found} найденных слов.")
+
+            # --- Блок экспорта ---
+            st.subheader("Экспорт результатов")
+            export_limit = st.number_input(
+                "Количество слов для экспорта (0 = все)",
+                min_value=0,
+                max_value=total_found,
+                value=min(100, total_found),
+                step=50,
+            )
+
+            if st.button("Экспортировать в HTML"):
+                limit = export_limit if export_limit > 0 else None
+                export_words(
+                    found_words=found_results,
+                    search_in=search_in_options[search_in],
+                    limit=limit,
+                )
+                st.success(f"Экспорт завершен. Скачайте и распечатайте файл")
+                # Предоставляем ссылку для скачивания
+                with open(EXPORT_FILE, "rb") as file:
+                    st.download_button(
+                        label="Скачать HTML",
+                        data=file,
+                        file_name=EXPORT_FILE,
+                        mime="text/html",
+                    )
+        else:
+            st.warning(
+                "Слов по вашему запросу не найдено. Попробуйте изменить фильтры."
+            )
     else:
-        st.warning("Слов по вашему запросу не найдено. Попробуйте изменить фильтры.")
+        st.info("⬅️ Задайте параметры поиска в боковой панели, чтобы начать.")
 
-else:
-    st.info("⬅️ Задайте параметры поиска в боковой панели, чтобы начать.")
+    # --- Информационный блок ---
+    with st.expander("Как пользоваться фонемным поиском?"):
+        st.markdown(
+            """
+            **Фонемный поиск** позволяет находить слова по их звучанию, а не написанию.
+            Используйте специальные теги и символы для составления запроса:
 
-# --- Информационный блок ---
-with st.expander("Как пользоваться фонемным поиском?"):
-    st.markdown(
-        """
-        **Фонемный поиск** позволяет находить слова по их звучанию, а не написанию.
-        Используйте специальные теги и символы для составления запроса:
+            **Основные теги (в скобках):**
+            - `(гласн)` — любая гласная (`а, о, у, ы, э, я, ё, ю, и, е`)
+            - `(согл)` — любая согласная
+            - `(тверд)` — любая твердая согласная
+            - `(мягк)` — любая мягкая согласная
+            - `(звонк)` — любая звонкая согласная
+            - `(глух)` — любая глухая согласная
+            - `(любой)` — любая гласная или согласная
 
-        **Основные теги (в скобках):**
-        - `(гласн)` — любая гласная (`а, о, у, ы, э, я, ё, ю, и, е`)
-        - `(согл)` — любая согласная
-        - `(тверд)` — любая твердая согласная
-        - `(мягк)` — любая мягкая согласная
-        - `(звонк)` — любая звонкая согласная
-        - `(глух)` — любая глухая согласная
-        - `(любой)` — любая гласная или согласная
+            **Группы и условия:**
+            - `в**в` — буква в слове должна встречаться 2 раза, г**г**г — г встречаться 3 раза и т.д.
+            - `(а,о,у)` — любая из фонем в группе (работает как "ИЛИ").
+            - `(к,с,т)а` — найдет "ка", "са", "та".
+            - `!` — указывает, что предыдущая фонема или группа **должна быть ударной**.
+            - `!!` — указывает, что предыдущая фонема или группа **должна быть безударной**.
 
-        **Группы и условия:**
-        - `в**в` — буква в слове должна встречаться 2 раза, г**г**г — г встречаться 3 раза и т.д.
-        - `(а,о,у)` — любая из фонем в группе (работает как "ИЛИ").
-        - `(к,с,т)а` — найдет "ка", "са", "та".
-        - `!` — указывает, что предыдущая фонема или группа **должна быть ударной**.
-        - `!!` — указывает, что предыдущая фонема или группа **должна быть безударной**.
+            **Примеры запросов:**
+            - `бр(а,о,ы)!` — найдет слова, где после "бр" идет ударная "а", "о" или "ы".
+            - `бр(а,о,ы)!!` — найдет слова, где после "бр" идет безударная "а", "о" или "ы".
+            - `(согл)(согл)(гласн)` — найдет слог со стечением двух согласных (например, в слове "трава").
+            - `(гласн)(согл)` — найдет закрытый слог (гласный, за которым следует согласный).
+            - `(гласн)(согл)(гласн)` — найдет согласный в интервокальной позиции (между двух гласных).
+            - `уд2` — найдет слова, где ударение падает на второй слог.
+            
+            Пробелы между буквами и тегами игнорируются. `к о т` и `кот` — это один и тот же запрос.
+            """
+        )
 
-        **Примеры запросов:**
-        - `бр(а,о,ы)!` — найдет слова, где после "бр" идет ударная "а", "о" или "ы".
-        - `бр(а,о,ы)!!` — найдет слова, где после "бр" идет безударная "а", "о" или "ы".
-        - `(согл)(согл)(гласн)` — найдет слог со стечением двух согласных (например, в слове "трава").
-        - `(гласн)(согл)` — найдет закрытый слог (гласный, за которым следует согласный).
-        - `(гласн)(согл)(гласн)` — найдет согласный в интервокальной позиции (между двух гласных).
-        - `уд2` — найдет слова, где ударение падает на второй слог.
-        
-        Пробелы между буквами и тегами игнорируются. `к о т` и `кот` — это один и тот же запрос.
-        """
-    )
+
+if app_mode == "Поиск":
+    show_search_page()
+elif app_mode == "Коллекции":
+    show_collection_manager()
+elif app_mode == "Тренировка":
+    show_training_ui()
