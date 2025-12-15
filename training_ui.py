@@ -1,6 +1,6 @@
 import streamlit as st
 from logic.pronunciation_trainer import PronunciationTrainer
-from training_component import web_speech_api_listen
+from training_component import web_speech_api_component
 from database import get_all_collections
 
 # --- Инициализация ---
@@ -65,11 +65,12 @@ def show_training_ui():
     st.write("Нажмите 'Говорите' и произнесите слово:")
 
     # Используем ASR клиент для получения аудио
-    asr_result = web_speech_api_listen(key=f"asr_{current_word_id}")
+    asr_result = web_speech_api_component()
 
-    if asr_result and asr_result.get("status") == "ok":
-        recognized_text = asr_result.get("text", "").strip()
-        if recognized_text:
+    if isinstance(asr_result, dict):
+        if asr_result.get("text"):
+            recognized_text = asr_result.get("text", "").strip()
+
             # Проверяем произношение
             result = trainer.check_pronunciation(current_word, recognized_text)
 
@@ -83,9 +84,10 @@ def show_training_ui():
                     f"🤔 Ошибка. Вы сказали: **{recognized_text}**. Попробуйте еще раз."
                 )
 
-            # Сбрасываем значение компонента, чтобы избежать повторной обработки
-            st.session_state[f"asr_{current_word_id}"] = {"text": "", "status": "idle"}
+            # Просто перезапускаем, чтобы компонент сбросился и мы не обрабатывали результат повторно
             st.rerun()
+        elif asr_result.get("error"):
+            st.error(f"Ошибка распознавания речи: {asr_result.get('error')}")
 
     # --- Статус и прогресс ---
     st.markdown("---")
