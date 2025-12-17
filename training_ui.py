@@ -1,6 +1,8 @@
 import streamlit as st
 from logic.pronunciation_trainer import PronunciationTrainer
-from training_component import web_speech_api_component
+from training_component.client_side_pronunciation_check import (
+    client_side_pronunciation_check,
+)
 from database import get_all_collections
 
 # --- Инициализация ---
@@ -64,27 +66,30 @@ def show_training_ui():
     # --- ASR Компонент ---
     st.markdown("---")
     st.write("Нажмите кнопку и произнесите слово:")
-    web_speech_api_component()
+    recognized_data = client_side_pronunciation_check(current_word)
 
-    # --- Обработка результата (ТОЛЬКО из URL) ---
-    if "transcript" in st.query_params:
-        recognized_text = st.query_params["transcript"]
-        st.query_params.clear()  # Очищаем, чтобы не обрабатывать повторно
+    # --- Обработка результата (из возвращаемого значения компонента) ---
+    if (
+        recognized_data
+        and isinstance(recognized_data, dict)
+        and "transcript" in recognized_data
+    ):
+        recognized_text = recognized_data["transcript"]
 
-        # Проверяем произношение
-        result = trainer.check_pronunciation(current_word, recognized_text)
+        result_status = recognized_data["status"]
+        similarity = recognized_data["similarity"]
         result_data["attempts"] += 1
-        is_success = result == "ok"
+        is_success = result_status == "ok"
         if is_success:
             result_data["success"] = True
 
+        # Результат уже показывается в JS компоненте, но также можем показать его в Streamlit
         if is_success:
-            st.success(f"🎉 Верно! Вы сказали: **{recognized_text}**")
+            st.success(f"🎉 Верно! Схожесть: {similarity}%")
         else:
-            st.error(
-                f"🤔 Ошибка. Вы сказали: **{recognized_text}**. Попробуйте еще раз."
-            )
-        st.rerun()
+            st.error(f"🤔 Ошибка. Схожесть: {similarity}%. Попробуйте еще раз.")
+        # Убираем st.rerun(), так как он может прерывать обработку
+        # st.rerun()
 
     # --- Статус и прогресс ---
     st.markdown("---")
