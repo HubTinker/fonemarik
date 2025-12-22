@@ -47,14 +47,22 @@ with st.sidebar:
         help="Перечислите через запятую звуки, которых не должно быть в слове.",
     )
 
-    st.markdown("Исключить категории звуков:")
+    st.markdown("Свойства искомого согласного:")
     col1, col2 = st.columns(2)
     with col1:
-        exclude_hard = st.checkbox("Твердые согл.", key="exclude_hard")
-        exclude_voiced = st.checkbox("Звонкие согл.", key="exclude_voiced")
+        hardness_option = st.radio(
+            "Твёрдость/мягкость:",
+            ["Любые", "Только твёрдые", "Только мягкие"],
+            horizontal=True,
+            key="hardness_filter",
+        )
     with col2:
-        exclude_soft = st.checkbox("Мягкие согл.", key="exclude_soft")
-        exclude_voiceless = st.checkbox("Глухие согл.", key="exclude_voiceless")
+        voicing_option = st.radio(
+            "Звонкость/глухость:",
+            ["Любые", "Только звонкие", "Только глухие"],
+            horizontal=True,
+            key="voicing_filter",
+        )
 
     search_in_options = {"в транскрипции": "phonemes", "в слове": "word"}
     search_in = st.radio(
@@ -126,16 +134,21 @@ def show_search_page():
         exclude_list = []
         if exclude_sounds_input:
             exclude_list.append(exclude_sounds_input)
-        if exclude_hard:
-            exclude_list.append("тверд")
-        if exclude_soft:
-            exclude_list.append("мягк")
-        if exclude_voiced:
-            exclude_list.append("звонк")
-        if exclude_voiceless:
-            exclude_list.append("глух")
 
         exclude_str = ",".join(exclude_list)
+
+        # --- Обработка фонологических фильтров ---
+        phonological_hardness = None
+        if hardness_option == "Только твёрдые":
+            phonological_hardness = "hard"
+        elif hardness_option == "Только мягкие":
+            phonological_hardness = "soft"
+
+        phonological_voicing = None
+        if voicing_option == "Только звонкие":
+            phonological_voicing = "voiced"
+        elif voicing_option == "Только глухие":
+            phonological_voicing = "voiceless"
 
         with st.spinner("Идет поиск по словарю..."):
             # Вызов основной функции поиска
@@ -147,6 +160,8 @@ def show_search_page():
                 search_in=search_in_options[search_in],
                 sort_by_frequency=sort_by_freq,
                 exclude_sounds=exclude_str,
+                phonological_hardness=phonological_hardness,
+                phonological_voicing=phonological_voicing,
             )
 
         total_found = len(found_results)

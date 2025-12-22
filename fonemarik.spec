@@ -1,5 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+block_cipher = None
 
 a = Analysis(
     ['modern_gui.py'],
@@ -13,27 +14,66 @@ a = Analysis(
         'search',
         'dsl_parser',
         'phonology_rules',
+        'PyQt6.sip',
+        'charset_normalizer.cp949prober',
+        'charset_normalizer.gb2312prober',
+        'charset_normalizer.big5prober',
+        'charset_normalizer.eucjpprober',
+        'charset_normalizer.euckrprober',
+        'charset_normalizer.euctwprober',
+        'charset_normalizer.mbcssm',
+        'charset_normalizer.utf8prober',
+        'charset_normalizer.codingstatemachine',
+        'charset_normalizer.compat',
+        'charset_normalizer.constant',
+        'charset_normalizer.charsetgroupprober',
+        'charset_normalizer.charsetprober',
+        'charset_normalizer.hebrewprober',
+        'charset_normalizer.langbulgarianmodel',
+        'charset_normalizer.langgreekmodel',
+        'charset_normalizer.langhebrewmodel',
+        'charset_normalizer.langhungarianmodel',
+        'charset_normalizer.langrussianmodel',
+        'charset_normalizer.langthaimodel',
+        'charset_normalizer.langturkishmodel',
+        'charset_normalizer.sbcharsetprober',
+        'charset_normalizer.sbcsgroupprober',
+        'charset_normalizer.langcyrillicmodel',
+        'charset_normalizer.universaldetector',
+        'charset_normalizer.escprober',
+        'charset_normalizer.escsm',
+        'charset_normalizer.latin1prober',
+        'charset_normalizer.mbcsgroupprober',
+        'charset_normalizer.mbcsgroupprober',
+        'charset_normalizer.mbcharsetprober',
+        'charset_normalizer.nisprober',
+        'charset_normalizer.utf8prober'
     ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
     excludes=[],
+    win_no_prefer_redirects=False,
+    win_private_assemblies=False,
+    cipher=block_cipher,
     noarchive=False,
     optimize=0,
 )
-pyz = PYZ(a.pure)
+
+pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
 exe = EXE(
     pyz,
     a.scripts,
     a.binaries,
+    a.zipfiles,
     a.datas,
     [],
     name='fonemarik',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,
@@ -42,4 +82,6 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    uac_admin=False,
+    uac_uiaccess=False,
 )
